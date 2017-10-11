@@ -865,6 +865,8 @@ void Worker::run()
 
         MXS_NOTICE("Worker %d has shut down.", m_id);
         modules_thread_finish();
+
+        gwbuf_report();
     }
     else
     {

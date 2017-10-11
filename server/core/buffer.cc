@@ -20,9 +20,10 @@
 #include <maxscale/alloc.h>
 #include <maxscale/atomic.h>
 #include <maxscale/debug.h>
-#include <maxscale/spinlock.h>
 #include <maxscale/hint.h>
 #include <maxscale/log_manager.h>
+#include <maxscale/platform.h>
+#include <maxscale/spinlock.h>
 #include <maxscale/utils.h>
 
 #if defined(BUFFER_TRACE)
@@ -43,6 +44,118 @@ static int bcmpfn (void *key1, void *key2);
 static void gwbuf_remove_from_hashtable(GWBUF *buf);
 #endif
 
+namespace
+{
+
+/**
+ * This structure defines a GWBUF slot.
+ */
+struct GWBUF_SLOT
+{
+    size_t threshold; /*< The maximum capacity of a GWBUF at this slot. */
+    int    index;     /*< The index of the slot. */
+};
+
+/**
+ * What GWBUF slots are there.
+ */
+const GWBUF_SLOT GWBUF_SLOTS[] =
+{
+    {   256, 0 },
+    {   512, 1 },
+    {  1024, 2 },
+    {  2048, 3 },
+    {  4096, 4 },
+    {  8192, 5 },
+    { 16384, 6 },
+    { 32768, 7 },
+    { 65536, 8 }
+};
+
+/**
+ * How many different sized GWBUFs are there.
+ */
+const int N_GWBUF_SLOTS = sizeof(GWBUF_SLOTS)/sizeof(GWBUF_SLOTS[0]);
+
+/**
+ * Get slot index of provided size.
+ *
+ * @param s  The required size of a GWBUF.
+ *
+ * @return The corresponding slot index or -1 if larger than max.
+ */
+inline int get_slot_index(size_t s)
+{
+    int index = -1;
+
+    if (s <= GWBUF_SLOTS[N_GWBUF_SLOTS - 1].threshold)
+    {
+        int l = 0;
+        int r = N_GWBUF_SLOTS - 1;
+        int p;
+
+        do
+        {
+            p = (l + r) / 2;
+            if (s > GWBUF_SLOTS[p].threshold)
+            {
+                l = p + 1;
+            }
+            else
+            {
+                r = p - 1;
+            }
+        }
+        while ((GWBUF_SLOTS[p].threshold < s) ||
+               ((p > 0) && GWBUF_SLOTS[p - 1].threshold >= s));
+
+        ss_dassert((GWBUF_SLOTS[p].threshold >= s) &&
+                   ((p == 0) || (GWBUF_SLOTS[p - 1].threshold < s)));
+
+        index = GWBUF_SLOTS[p].index;
+    }
+
+    return index;
+}
+
+/**
+ * How many GWBUF headers are buffered at most.
+ */
+const int N_HEADER_SLOTS = 256;
+
+struct THIS_THREAD
+{
+    GWBUF*   headers[N_HEADER_SLOTS];   /*< GWBUF headers without shared buffer. */
+    int      n_headers;                 /*< Current amount of buffered headers. */
+    int      n_headers_buffered;        /*< Maximum amount of buffered headers at any point in time. */
+    uint64_t n_headers_allocated;       /*< Amount of headers allocated in total. */
+    GWBUF*   buffers[N_GWBUF_SLOTS];    /*< Linked lists of spare GWBUFs ordered by capacity. */
+    uint32_t n_buffers[N_GWBUF_SLOTS];  /*< How many of each size allocated. */
+    uint64_t n_buffer_overflows;        /*< How many buffers exceeding the maximum size. */
+};
+
+static thread_local THIS_THREAD this_thread;
+
+}
+
+static GWBUF* get_header()
+{
+    GWBUF* rval = NULL;
+
+    if (this_thread.n_headers > 0)
+    {
+        rval = this_thread.headers[--this_thread.n_headers];
+    }
+    else
+    {
+        /* Allocate the buffer header */
+        rval = (GWBUF *)MXS_CALLOC(1, sizeof(GWBUF));
+        ++this_thread.n_headers_allocated;
+    }
+
+    return rval;
+}
+
 /**
  * Allocate a new gateway buffer structure of size bytes.
  *
@@ -57,25 +170,59 @@ static void gwbuf_remove_from_hashtable(GWBUF *buf);
 GWBUF *
 gwbuf_alloc(unsigned int size)
 {
-    GWBUF      *rval;
+    GWBUF      *rval = NULL;
     SHARED_BUF *sbuf;
-    size_t      sbuf_size = sizeof(SHARED_BUF) + (size ? size - 1 : 0);
+    size_t      sbuf_size = sizeof(SHARED_BUF);
 
-    /* Allocate the buffer header */
-    if ((rval = (GWBUF *)MXS_MALLOC(sizeof(GWBUF))) == NULL)
+    int slot = get_slot_index(size);
+    ss_dassert((slot == -1) || (slot < N_GWBUF_SLOTS));
+
+    THIS_THREAD& thread = this_thread;
+
+    if (slot != -1)
     {
-        goto retblock;
+        sbuf_size += (GWBUF_SLOTS[slot].threshold - 1);
+
+        rval = thread.buffers[slot];
+
+        if (rval)
+        {
+            thread.buffers[slot] = rval->next;
+
+            sbuf = rval->sbuf;
+
+            ss_dassert(sbuf->slot == slot);
+        }
+        else
+        {
+            // One will be allocated.
+            ++thread.n_buffers[slot];
+        }
+    }
+    else
+    {
+        sbuf_size += (size - 1);
+        ++thread.n_buffer_overflows;
     }
 
-    /* Allocate the shared data buffer */
-    if ((sbuf = (SHARED_BUF *)MXS_MALLOC(sbuf_size)) == NULL)
+    if (!rval)
     {
-        MXS_FREE(rval);
-        rval = NULL;
-        goto retblock;
+        if ((rval = get_header()) == NULL)
+        {
+            goto retblock;
+        }
+
+        /* Allocate the shared data buffer */
+        if ((sbuf = (SHARED_BUF *)MXS_MALLOC(sbuf_size)) == NULL)
+        {
+            MXS_FREE(rval);
+            rval = NULL;
+            goto retblock;
+        }
     }
 
     sbuf->refcount = 1;
+    sbuf->slot = slot;
     sbuf->info = GWBUF_INFO_NONE;
     sbuf->bufobj = NULL;
 
@@ -247,6 +394,7 @@ gwbuf_free(GWBUF *buf)
 static void
 gwbuf_free_one(GWBUF *buf)
 {
+    int slot = -1;
     BUF_PROPERTY    *prop;
     buffer_object_t *bo;
 
@@ -259,7 +407,14 @@ gwbuf_free_one(GWBUF *buf)
             bo = gwbuf_remove_buffer_object(buf, bo);
         }
 
-        MXS_FREE(buf->sbuf);
+        buf->sbuf->bufobj = NULL;
+
+        slot = buf->sbuf->slot;
+
+        if (slot == -1)
+        {
+            MXS_FREE(buf->sbuf);
+        }
     }
 
     while (buf->properties)
@@ -280,7 +435,33 @@ gwbuf_free_one(GWBUF *buf)
 #if defined(BUFFER_TRACE)
     gwbuf_remove_from_hashtable(buf);
 #endif
-    MXS_FREE(buf);
+
+    if (slot == -1)
+    {
+        if (this_thread.n_headers < N_HEADER_SLOTS)
+        {
+            this_thread.headers[this_thread.n_headers++] = buf;
+
+            if (this_thread.n_headers > this_thread.n_headers_buffered)
+            {
+                this_thread.n_headers_buffered = this_thread.n_headers;
+            }
+        }
+        else
+        {
+            MXS_FREE(buf);
+        }
+    }
+    else
+    {
+        THIS_THREAD& thread = this_thread;
+
+        // The buffers are treated as a stack. That way the most recently
+        // used buffer will be used. Should ensure that it has not been
+        // paged out.
+        buf->next = thread.buffers[slot];
+        thread.buffers[slot] = buf;
+    }
 }
 
 /**
@@ -296,9 +477,9 @@ gwbuf_free_one(GWBUF *buf)
 static GWBUF *
 gwbuf_clone_one(GWBUF *buf)
 {
-    GWBUF *rval;
+    GWBUF* rval;
 
-    if ((rval = (GWBUF *)MXS_CALLOC(1, sizeof(GWBUF))) == NULL)
+    if ((rval = get_header()) == NULL)
     {
         return NULL;
     }
@@ -931,4 +1112,23 @@ void gwbuf_hexdump(GWBUF* buffer)
     }
 
     MXS_INFO("%.*s", n, ss.str().c_str());
+}
+
+void gwbuf_report()
+{
+    if (MXS_LOG_PRIORITY_IS_ENABLED(LOG_NOTICE))
+    {
+        std::stringstream ss;
+
+        for (int i = 0; i < N_GWBUF_SLOTS; i++)
+        {
+            ss << GWBUF_SLOTS[i].threshold << ": " << this_thread.n_buffers[i] << ", ";
+        }
+
+        ss << "overflows: " << this_thread.n_buffer_overflows << ", "
+           << "headers buffered: " << this_thread.n_headers_buffered << ", "
+           << "headers allocated: " << this_thread.n_headers_allocated;
+
+        MXS_NOTICE("Buffer allocations: %s", ss.str().c_str());
+    }
 }
