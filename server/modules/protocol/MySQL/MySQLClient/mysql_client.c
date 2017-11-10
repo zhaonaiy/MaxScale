@@ -420,6 +420,7 @@ int MySQLSendHandshake(DCB* dcb)
  */
 int gw_MySQLWrite_client(DCB *dcb, GWBUF *queue)
 {
+    debug_response(dcb, queue);
     return dcb_write(dcb, queue);
 }
 
@@ -592,6 +593,7 @@ static void store_client_information(DCB *dcb, GWBUF *buffer)
                 strcpy(ses->db, (char*)data + dboffset);
             }
         }
+        ses_debug(dcb, "Auth from %s [db: %s]", ses->user, ses->db);
     }
 }
 
@@ -970,6 +972,7 @@ void check_pool_candidate(DCB* dcb)
 
     if (proto->current_command == MYSQL_COM_QUIT)
     {
+        ses_debug(dcb, "COM_QUIT");
         /** The client is closing the connection. We know that this will be the
          * last command the client sends so the backend connections are very likely
          * to be in an idle state.
@@ -1610,6 +1613,8 @@ static int route_by_statement(MXS_SESSION* session, uint64_t capabilities, GWBUF
                     }
                 }
             }
+
+            debug_query(session->client_dcb, packetbuf);
 
             /** Route query */
             rc = MXS_SESSION_ROUTE_QUERY(session, packetbuf);
