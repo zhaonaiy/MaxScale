@@ -1411,6 +1411,12 @@ gw_client_close(DCB *dcb)
             /** Close router session and all its connections */
             router->closeSession(router_instance, session->router_session);
         }
+
+        if (!session->qualifies_for_pooling)
+        {
+            // This means that the client was not closed in a controlled fashion
+            dump_dcb(session->client_dcb);
+        }
     }
     return 1;
 }

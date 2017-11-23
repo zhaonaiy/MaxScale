@@ -474,8 +474,9 @@ static inline int print_dump(char* dest, size_t size, DCB* dcb, char* sql, char*
                     "readq len: %u\n"
                     "delayq len: %u\n"
                     "stmt: %s\n"
-                    "--- Latest Messages ---\n"
-                    "%s",
+                    "--- Begin Messages %lu ---\n"
+                    "%s"
+                    "--- End Messages %lu ---\n",
                     ctime(&now),
                     dcb->user,
                     session->ses_id,
@@ -494,7 +495,9 @@ static inline int print_dump(char* dest, size_t size, DCB* dcb, char* sql, char*
                     gwbuf_length(dcb->dcb_readqueue),
                     gwbuf_length(dcb->delayq),
                     sql ? sql : "no stored statement",
-                    msg);
+                    session->ses_id,
+                    msg,
+                    session->ses_id);
 }
 
 static inline void dump_dcb(DCB* dcb)

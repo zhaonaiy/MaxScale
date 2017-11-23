@@ -3421,8 +3421,8 @@ void dcb_process_idle_sessions(int thr)
 
                     if (idle > timeout)
                     {
-                        dump_dcb(dcb);
-                        MXS_WARNING("Timing out '%s'@%s, idle for %.1f seconds",
+                        MXS_WARNING("Timing out session %lu ('%s'@%s), idle for %.1f seconds",
+                                    dcb->session->ses_id,
                                     dcb->user ? dcb->user : "<unknown>",
                                     dcb->remote ? dcb->remote : "<unknown>",
                                     (float)idle / 10.f);
