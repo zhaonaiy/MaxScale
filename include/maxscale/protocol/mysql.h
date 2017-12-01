@@ -449,11 +449,23 @@ bool mxs_mysql_is_result_set(GWBUF *buffer);
 void debug_query(DCB* dcb, GWBUF* buffer);
 void debug_response(DCB* dcb, GWBUF* buffer);
 
+static inline char* dump_buffer(GWBUF* buffer)
+{
+    int buflen = GWBUF_LENGTH(buffer);
+    char* buf = (char*)MXS_MALLOC(buflen * 2 + 1);
+    gw_bin2hex(buf, GWBUF_DATA(buffer), buflen);
+    return buf;
+}
+
 static inline int print_dump(char* dest, size_t size, DCB* dcb, char* sql, char* msg)
 {
     MySQLProtocol* proto = (MySQLProtocol*)dcb->protocol;
     MXS_SESSION* session = dcb->session;
     time_t now = time(NULL);
+    char* writeq_data = dcb->writeq ? dump_buffer(dcb->writeq) : NULL;
+    char* readq_data = dcb->dcb_readqueue ? dump_buffer(dcb->dcb_readqueue) : NULL;
+    char* delayq_data = dcb->delayq ? dump_buffer(dcb->delayq) : NULL;
+
     return snprintf(dest, size,
                     "--- Connection details ---\n"
                     "timestamp: %s" // ctime() adds a newline
@@ -471,8 +483,11 @@ static inline int print_dump(char* dest, size_t size, DCB* dcb, char* sql, char*
                     "client_capabilities: %0x\n"
                     "protocol_auth_state: %s\n"
                     "writeq len: %u\n"
+                    "writeq data: %s\n"
                     "readq len: %u\n"
+                    "readq data: %s\n"
                     "delayq len: %u\n"
+                    "delayq data: %s\n"
                     "stmt: %s\n"
                     "--- Begin Messages %lu ---\n"
                     "%s"
@@ -492,12 +507,19 @@ static inline int print_dump(char* dest, size_t size, DCB* dcb, char* sql, char*
                     proto->client_capabilities,
                     STRPROTOCOLSTATE(proto->protocol_auth_state),
                     gwbuf_length(dcb->writeq),
+                    writeq_data,
                     gwbuf_length(dcb->dcb_readqueue),
+                    readq_data,
                     gwbuf_length(dcb->delayq),
+                    delayq_data,
                     sql ? sql : "no stored statement",
                     session->ses_id,
                     msg,
                     session->ses_id);
+
+    MXS_FREE(writeq_data);
+    MXS_FREE(readq_data);
+    MXS_FREE(delayq_data);
 }
 
 static inline void dump_dcb(DCB* dcb)
