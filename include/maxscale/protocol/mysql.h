@@ -449,11 +449,12 @@ bool mxs_mysql_is_result_set(GWBUF *buffer);
 void debug_query(DCB* dcb, GWBUF* buffer);
 void debug_response(DCB* dcb, GWBUF* buffer);
 
-static inline char* dump_buffer(GWBUF* buffer)
+static inline char* dump_buffer(GWBUF** buffer)
 {
-    int buflen = GWBUF_LENGTH(buffer);
+    *buffer = gwbuf_make_contiguous(*buffer);
+    int buflen = GWBUF_LENGTH(*buffer);
     char* buf = (char*)MXS_MALLOC(buflen * 2 + 1);
-    gw_bin2hex(buf, GWBUF_DATA(buffer), buflen);
+    gw_bin2hex(buf, GWBUF_DATA(*buffer), buflen);
     return buf;
 }
 
@@ -462,9 +463,9 @@ static inline int print_dump(char* dest, size_t size, DCB* dcb, char* sql, char*
     MySQLProtocol* proto = (MySQLProtocol*)dcb->protocol;
     MXS_SESSION* session = dcb->session;
     time_t now = time(NULL);
-    char* writeq_data = dcb->writeq ? dump_buffer(dcb->writeq) : NULL;
-    char* readq_data = dcb->dcb_readqueue ? dump_buffer(dcb->dcb_readqueue) : NULL;
-    char* delayq_data = dcb->delayq ? dump_buffer(dcb->delayq) : NULL;
+    char* writeq_data = dcb->writeq ? dump_buffer(&dcb->writeq) : NULL;
+    char* readq_data = dcb->dcb_readqueue ? dump_buffer(&dcb->dcb_readqueue) : NULL;
+    char* delayq_data = dcb->delayq ? dump_buffer(&dcb->delayq) : NULL;
 
     return snprintf(dest, size,
                     "--- Connection details ---\n"
