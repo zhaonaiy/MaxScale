@@ -111,6 +111,8 @@ public:
 class MySqlServerInfo
 {
 public:
+    MXS_MONITORED_SERVER* base;             /**< Monitored server base class. */
+    string           name;                  /**< Server name, copy of SERVER->unique_name. */
     int64_t          server_id;             /**< Value of @@server_id. Valid values are 32bit unsigned. */
     int              group;                 /**< Multi-master group where this server belongs,
                                              *   0 for servers not in groups */
