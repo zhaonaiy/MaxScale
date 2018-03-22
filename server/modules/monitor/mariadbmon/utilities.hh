@@ -71,3 +71,74 @@ string get_connection_errors(const ServerVector& servers);
  * @return Server names
  */
 string monitored_servers_to_string(const ServerVector& array);
+
+/**
+ * Helper class for simplifying working with resultsets. Used in MariaDBServer.
+ */
+class QueryResult
+{
+private:
+    std::tr1::unordered_map<string, int64_t> m_col_indexes; // Map of column name -> index
+    std::vector<string> m_data; // Data array
+    int64_t m_current_row; // From which row are results currently returned
+    int64_t m_columns; // How many columns does the data have. Usually equal to column index map size.
+public:
+
+    /**
+     * Read a result set into the object. Discards any old data.
+     *
+     * @param results Resultset obtained by @c mysql_store_result() i.e. buffered.
+     * Do not try with @c mysql_use_result().
+     * @param columns Number of columns, obtained from the connection with @c mysql_field_count().
+     * The column names should be unique, otherwise @c get_col_index() will give wrong results.
+     * @return True if successful and column names were unique. Even if false, the set may contain data.
+     */
+    bool insert_data(MYSQL_RES* resultset);
+
+    /**
+     * Advance to next row. Affects all result returning functions.
+     *
+     * @return The index of the next row. If no next row, returns -1.
+     */
+    int64_t next_row();
+
+    /**
+     * Checks if there are more rows.
+     *
+     * @return True if more rows.
+     */
+    bool has_next_row();
+
+    /**
+     * Get a numeric index for a column name.
+     *
+     * @param col_name Column name
+     * @return Index or -1 if not found.
+     */
+    int64_t get_col_index(const string& col_name);
+
+    /**
+     * Read a string value from the current row and given column.
+     *
+     * @param column_ind Column index
+     * @return Value as string
+     */
+    string get_string(int64_t column_ind);
+
+    /**
+     * Read an integer value from the current row and given column. No error checking is done on the parsing.
+     * The parsing is performed by @c strtoll(), so the caller may check errno for errors.
+     *
+     * @param column_ind Column index
+     * @return Value as integer
+     */
+    int64_t get_int(int64_t column_ind);
+
+    /**
+     * Read a boolean value from the current row and given column.
+     *
+     * @param column_ind Column index
+     * @return Value as boolean. Returns true if the text is either 'Y' or '1'.
+     */
+    bool get_bool(int64_t column_ind);
+};

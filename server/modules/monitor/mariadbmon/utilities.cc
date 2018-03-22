@@ -113,3 +113,97 @@ string monitored_servers_to_string(const ServerVector& array)
     }
     return rval;
 }
+
+bool QueryResult::insert_data(MYSQL_RES* resultset)
+{
+    m_current_row = 0;
+    m_col_indexes.clear();
+    m_data.clear();
+    m_columns = mysql_num_fields(resultset);
+
+    MYSQL_FIELD* field_info = mysql_fetch_fields(resultset);
+    bool error = false; // Even if an error occurs, keep reading as much as possible.
+
+    for (int64_t column_index = 0; column_index < m_columns; column_index++)
+    {
+        string key(field_info[column_index].name);
+        if (m_col_indexes.count(key) == 0)
+        {
+            m_col_indexes[key] = column_index;
+        }
+        else
+        {
+            error = true;
+            MXS_ERROR("Duplicate column name in result set detected: '%s'.", key.c_str());
+        }
+    }
+
+    // Fill in data to array. Use the vector as a 2D array even though it's just a 1-D vector.
+    const my_ulonglong rows = mysql_num_rows(resultset);
+    m_data.resize(m_columns * rows); // Initializes all elements to empty strings.
+
+    my_ulonglong row_index = 0;
+    while (row_index < rows)
+    {
+        MYSQL_ROW row = mysql_fetch_row(resultset);
+        if (row)
+        {
+            for (int64_t column_index = 0; column_index < m_columns; column_index++)
+            {
+                // Empty strings and NULL values are identical.
+                const char* element = row[column_index];
+                if (element)
+                {
+                    m_data[(row_index * m_columns) + column_index] = element;
+                }
+            }
+        }
+        else
+        {
+            MXS_ERROR("Not enough rows: expected %llu but only got %llu.", rows, row_index);
+            m_data.resize(m_columns * row_index);
+            error = true;
+            break;
+        }
+        row_index++;
+    }
+    return !error;
+}
+
+int64_t QueryResult::next_row()
+{
+    return (has_next_row()) ? (++m_current_row) : -1;
+}
+
+bool QueryResult::has_next_row()
+{
+    int64_t rows = m_data.size() / m_columns;
+    return (m_current_row + 1 < rows); // current_row is an index, rows is a count.
+}
+
+int64_t QueryResult::get_col_index(const string& col_name)
+{
+    auto iter = m_col_indexes.find(col_name);
+    return (iter != m_col_indexes.end()) ? iter->second : -1;
+}
+
+string QueryResult::get_string(int64_t column_ind)
+{
+    ss_dassert(column_ind < m_columns);
+    return m_data[m_current_row * m_columns + column_ind];
+}
+
+int64_t QueryResult::get_int(int64_t column_ind)
+{
+    ss_dassert(column_ind < m_columns);
+    string& data = m_data[m_current_row * m_columns + column_ind];
+    errno = 0; // strtoll sets this
+    return strtoll(data.c_str(), NULL, 10);
+}
+
+bool QueryResult::get_bool(int64_t column_ind)
+{
+    ss_dassert(column_ind < m_columns);
+    string& data = m_data[m_current_row * m_columns + column_ind];
+    return (data == "Y" || data == "1");
+}

@@ -16,8 +16,8 @@
 #include <maxscale/cppdefs.hh>
 
 #include <string>
-
 #include <maxscale/monitor.h>
+#include "utilities.hh"
 
 using std::string;
 enum mysql_server_version
@@ -137,4 +137,13 @@ public:
      * an error in the gtid-values.
      */
     int64_t relay_log_events();
+
+    /**
+     * Execute a query which returns data.
+     *
+     * @param query The query
+     * @param output Where to save the output
+     * @return True on success
+     */
+    bool execute_query(const string& query, QueryResult& output);
 };
