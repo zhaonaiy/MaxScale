@@ -145,5 +145,5 @@ public:
      * @param output Where to save the output
      * @return True on success
      */
-    bool execute_query(const string& query, QueryResult& output);
+    QueryResult execute_query(const string& query);
 };

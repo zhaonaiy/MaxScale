@@ -78,12 +78,19 @@ string monitored_servers_to_string(const ServerVector& array);
 class QueryResult
 {
 private:
+    QueryResult(const QueryResult& source) = delete;
+    QueryResult& operator = (const QueryResult& source) = delete;
+private:
     std::tr1::unordered_map<string, int64_t> m_col_indexes; // Map of column name -> index
     std::vector<string> m_data; // Data array
     int64_t m_current_row; // From which row are results currently returned
     int64_t m_columns; // How many columns does the data have. Usually equal to column index map size.
+    
 public:
-
+    int tarkistus;
+    QueryResult();
+    ~QueryResult();
+    QueryResult(QueryResult&& source) noexcept;
     /**
      * Read a result set into the object. Discards any old data.
      *
@@ -95,6 +102,7 @@ public:
      */
     bool insert_data(MYSQL_RES* resultset);
 
+    bool has_data();
     /**
      * Advance to next row. Affects all result returning functions.
      *

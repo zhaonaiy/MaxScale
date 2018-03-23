@@ -114,8 +114,32 @@ string monitored_servers_to_string(const ServerVector& array)
     return rval;
 }
 
+QueryResult::QueryResult()
+{
+    m_current_row = 0;
+    m_columns = 0;
+    tarkistus = 1;
+}
+
+QueryResult::~QueryResult()
+{
+    MXS_WARNING("Tarkistus on %d.", tarkistus);
+}
+
+QueryResult::QueryResult(QueryResult&& source) noexcept
+{
+    m_data = std::move(source.m_data);
+    m_col_indexes = std::move(source.m_col_indexes);
+    m_current_row = std::move(source.m_current_row);
+    m_columns = std::move(source.m_columns);
+    tarkistus = source.tarkistus;
+    source.tarkistus = 0;
+    MXS_WARNING("Move ctor called!! OMG");
+}
+
 bool QueryResult::insert_data(MYSQL_RES* resultset)
 {
+    tarkistus++;
     m_current_row = 0;
     m_col_indexes.clear();
     m_data.clear();
@@ -168,6 +192,11 @@ bool QueryResult::insert_data(MYSQL_RES* resultset)
         row_index++;
     }
     return !error;
+}
+
+bool QueryResult::has_data()
+{
+    return !m_data.empty();
 }
 
 int64_t QueryResult::next_row()

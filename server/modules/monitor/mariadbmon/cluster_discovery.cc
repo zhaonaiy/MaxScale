@@ -357,6 +357,20 @@ MXS_MONITORED_SERVER* getSlaveOfNodeId(MXS_MONITORED_SERVER *ptr, long node_id,
 
 bool MariaDBMonitor::do_show_slave_status(MariaDBServer* serv_info, MXS_MONITORED_SERVER* database)
 {
+    QueryResult blaa = serv_info->execute_query("SHOW ALL SLAVES STATUS;");
+    blaa.tarkistus = 5;
+    QueryResult jee = std::move(blaa);
+    if (!jee.has_data())
+    {
+        /** Query returned no rows, replication is not configured */
+        serv_info->slave_configured = false;
+        serv_info->slave_heartbeats = 0;
+        serv_info->slave_status = SlaveStatusInfo();
+        return true;
+    }
+    auto ind_host = jee.get_col_index("Master_Host");
+    auto master_host = jee.get_string(ind_host);
+    MXS_WARNING("Master_Host is %s", master_host.c_str());
     /** Column positions for SHOW SLAVE STATUS */
     const size_t MYSQL55_STATUS_MASTER_LOG_POS = 5;
     const size_t MYSQL55_STATUS_MASTER_LOG_FILE = 6;

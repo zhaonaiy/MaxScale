@@ -116,19 +116,21 @@ int64_t MariaDBServer::relay_log_events()
     return -1;
 }
 
-bool MariaDBServer::execute_query(const string& query, QueryResult& output)
+QueryResult MariaDBServer::execute_query(const string& query)
 {
+    QueryResult output2;
     auto conn = server_base->con;
-    bool rval = false;
+    //bool rval = false;
     MYSQL_RES *result = NULL;
     if (mxs_mysql_query(conn, query.c_str()) == 0 && (result = mysql_store_result(conn)) != NULL)
     {
-        rval = output.insert_data(result);
+        //rval = output2.insert_data(result);
+        output2.insert_data(result);
         mysql_free_result(result);
     }
     else
     {
         mon_report_query_error(server_base);
     }
-    return rval;
+    return output2;
 }
